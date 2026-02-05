@@ -4,57 +4,82 @@ import io
 import numpy as np
 import face_recognition
 import time
+import asyncio
 
-def read_mjpeg_frame(url: str, auth, timeout=10):
-    r = requests.get(url, auth=auth, stream=True, timeout=timeout)
-    r.raise_for_status()
+class Foundation:
+    async def read_mjpeg_frame(url: str, auth, timeout=10):
+        r = requests.get(url, auth=auth, stream=True, timeout=timeout)
+        r.raise_for_status()
 
-    buf = bytearray()
-    for chunk in r.iter_content(chunk_size=4096):
-        if not chunk:
-            continue
-        buf += chunk
+        buf = bytearray()
+        for chunk in r.iter_content(chunk_size=4096):
+            if not chunk:
+                continue
+            buf += chunk
 
-        a = buf.find(b"\xff\xd8")  # JPEG start
-        b = buf.find(b"\xff\xd9")  # JPEG end
-        if a != -1 and b != -1 and b > a:
-            jpg = bytes(buf[a:b+2])
-            del buf[:b+2]
-            img = Image.open(io.BytesIO(jpg)).convert("RGB")
-            return np.array(img)
+            a = buf.find(b"\xff\xd8")  # JPEG start
+            b = buf.find(b"\xff\xd9")  # JPEG end
+            if a != -1 and b != -1 and b > a:
+                jpg = bytes(buf[a:b+2])
+                del buf[:b+2]
+                img = Image.open(io.BytesIO(jpg)).convert("RGB")
+                return np.array(img)
 
-    raise RuntimeError("No JPEG frame found in stream")
+        raise RuntimeError("No JPEG frame found in stream")
 
-def compare(frame, my_encoding) -> (bool, bool): # first for if got the face, second for comparism
-    try:
-        unknown_encoding = face_recognition.face_encodings(frame, model="small")[0]
-    except:
-        print("Unexpected error as encoding")
-        return(False, False)
-    
-    result = face_recognition.compare_faces([my_encoding], unknown_encoding)
-    return(True, result)
 
-def main():
+class FaceRecognition:
+    async def compare(frame, my_encoding) -> (bool, bool): # first for if got the face, second for comparism
+        StartTime = time.time()
+        try:
+            unknown_encodings = face_recognition.face_encodings(frame, model="small")
+            if not unknown_encodings:
+                print("No face found in frame")
+                return (False, False)
+            unknown_encoding = unknown_encodings[0]
+        except Exception as e:
+            print(f"Unexpected error while encoding face: {e}")
+            return (False, False)
+
+        result = face_recognition.compare_faces([my_encoding], unknown_encoding)
+
+        EndTime = time.time()
+        print("FacialRecognition Time: ", EndTime - StartTime)
+
+        return (True, bool(result[0]))
+
+class Rest:
+    async def detectMovement(image1, image2) -> float:
+        mse = np.mean((image1 - image2) ** 2)
+        return mse
+
+async def main():
+    print("Prepearing face encoding...")
     my_portrait = face_recognition.load_image_file("my_portrait.jpeg")
     my_encoding = face_recognition.face_encodings(my_portrait, model="small")[0]
+    print("Face encoding ready.")
 
-    StartTime = time.time()
+    empty_frame = await Foundation.read_mjpeg_frame(URL, auth=(USER, PASS))
+    while True:
+        now_frame = await Foundation.read_mjpeg_frame(URL, auth=(USER, PASS))
+        mse = await Rest.detectMovement(empty_frame, now_frame)
+        # if mse < 20:
+        #     empty_frame = now_frame
 
-    frame = read_mjpeg_frame(URL, auth=(USER, PASS))
+    frame = await Foundation.read_mjpeg_frame(URL, auth=(USER, PASS))
     print(frame.shape)  # (H, W, 3)
-    (sucess, SameFace) = compare(frame, my_encoding)
-
-    if SameFace:
-        print("abcabc")
+    (success, SameFace) = await FaceRecognition.compare(frame, my_encoding)
     
-    EndTime = time.time()
-    print("One cycle time: ", EndTime - StartTime)
-
+    if success and SameFace:
+        print("Pass.")
+    elif success and not SameFace:
+        print("Face detected, but does not match.")
+    else:
+        print("No face detected.")
 
 if __name__ == "__main__":
     URL = "http://192.168.31.6:8375"
     USER = "user"
     PASS = "UserPassword"
-
-    main()
+    
+    asyncio.run(main())
