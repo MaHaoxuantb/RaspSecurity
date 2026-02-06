@@ -33,8 +33,3 @@ jobs:
             --amd64
             --aarch64
             --image ghcr.io/${{ github.repository }}-raspsecurity
-            --tag ${{
-              startsWith(github.ref, 'refs/tags/')
-              && github.ref_name
-              || 'dev'
-            }}
