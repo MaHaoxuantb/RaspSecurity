@@ -8,11 +8,12 @@ import asyncio
 from dotenv import load_dotenv
 import os
 from fastapi import FastAPI
+from pydantic import BaseModel
 import sqlite3
 import uvicorn
 
-from Deprecated.rest import Rest # deprecated
-from Deprecated.trigger import trigger # deprecated
+# from Deprecated.rest import Rest # deprecated
+# from Deprecated.trigger import trigger # deprecated
 
 class Foundation:
     async def read_mjpeg_frame(url: str, auth, timeout=10):
@@ -56,7 +57,7 @@ class FaceRecognition:
 
         return (True, bool(result[0]))
     
-    async def prepare(self):
+    async def prepare():
         print("Prepearing face encoding...")
         my_portrait = face_recognition.load_image_file("my_portrait.jpeg")
         my_encoding = face_recognition.face_encodings(my_portrait, model="small")[0]
@@ -85,7 +86,7 @@ class Database:
         cursor.execute("""
             INSERT INTO events (timestamp, service, event_type, details)
             VALUES (?, ?, ?, ?)
-        """, (timestamp, event_type, details))
+        """, (timestamp, service, event_type, details))
         conn.commit()
         conn.close()
 
@@ -112,13 +113,18 @@ async def main():
 
 app = FastAPI()
 
-class TriggerRequest:
+# Expected JSON body: {"security_key": "...", "entity": "Cam1", "trigger": true}
+class TriggerRequest(BaseModel):
+    security_key: str
     entity: str
     trigger: bool
 
 @app.post("/recognize_current")
 async def recognize_current(request: TriggerRequest):
     # Request 
+    if request.security_key != SECURITY_KEY:
+        print("Not Valid Security Key Attempted: ", request.security_key)
+        return {"status": "error", "message": "Invalid security key."}
     if request.trigger: # if true
         if request.entity == "Cam1":
             asyncio.create_task(Database.log_event(time.strftime("%Y-%m-%d %H:%M:%S"), "TriggerRequest", "Success", "Triggerred by Cam1"))
@@ -158,9 +164,12 @@ if __name__ == "__main__":
     HA_URL = os.getenv("HA_URL")
     TOKEN = os.getenv("TOKEN")
 
+    # Security
+    SECURITY_KEY = os.getenv("security_key")
+
     my_encoding = asyncio.run(FaceRecognition.prepare())
     
-    Database.prepare()
+    asyncio.run(Database.prepare())
 
     # asyncio.run(main())
-    uvicorn.run(app, host="127.0.0.1", port=3000)
+    uvicorn.run(app, host="0.0.0.0", port=3000)
