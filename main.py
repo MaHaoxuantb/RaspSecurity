@@ -8,9 +8,11 @@ import asyncio
 from dotenv import load_dotenv
 import os
 from fastapi import FastAPI
+import sqlite3
+import uvicorn
 
 from Deprecated.rest import Rest # deprecated
-from trigger import trigger
+from Deprecated.trigger import trigger # deprecated
 
 class Foundation:
     async def read_mjpeg_frame(url: str, auth, timeout=10):
@@ -53,31 +55,96 @@ class FaceRecognition:
         print("FacialRecognition Time: ", EndTime - StartTime)
 
         return (True, bool(result[0]))
+    
+    async def prepare(self):
+        print("Prepearing face encoding...")
+        my_portrait = face_recognition.load_image_file("my_portrait.jpeg")
+        my_encoding = face_recognition.face_encodings(my_portrait, model="small")[0]
+        print("Face encoding ready.")
+        return my_encoding
+    
+class Database:
+    async def prepare():
+        conn = sqlite3.connect("security.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                service TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                details TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+    
+    async def log_event(timestamp, service, event_type, details=None):
+        conn = sqlite3.connect("security.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO events (timestamp, service, event_type, details)
+            VALUES (?, ?, ?, ?)
+        """, (timestamp, event_type, details))
+        conn.commit()
+        conn.close()
+
 
 async def main():
-    print("Prepearing face encoding...")
-    my_portrait = face_recognition.load_image_file("my_portrait.jpeg")
-    my_encoding = face_recognition.face_encodings(my_portrait, model="small")[0]
-    print("Face encoding ready.")
+    # empty_frame = await Foundation.read_mjpeg_frame(URL, auth=(USER, PASS))
+    # while True:
+    #     now_frame = await Foundation.read_mjpeg_frame(URL, auth=(USER, PASS))
+    #     motion_ratio = await Rest.detectMovement(empty_frame, now_frame)
+    #     print(motion_ratio)
+    #     # if mse < 20:
+    #     #     empty_frame = now_frame
 
-    empty_frame = await Foundation.read_mjpeg_frame(URL, auth=(USER, PASS))
-    while True:
-        now_frame = await Foundation.read_mjpeg_frame(URL, auth=(USER, PASS))
-        motion_ratio = await Rest.detectMovement(empty_frame, now_frame)
-        print(motion_ratio)
-        # if mse < 20:
-        #     empty_frame = now_frame
-
-    frame = await Foundation.read_mjpeg_frame(URL, auth=(USER, PASS))
+    frame = await Foundation.read_mjpeg_frame(ME_URL, auth=(USER, PASS))
     print(frame.shape)  # (H, W, 3)
     (success, SameFace) = await FaceRecognition.compare(frame, my_encoding)
-    
     if success and SameFace:
         print("Pass.")
     elif success and not SameFace:
         print("Face detected, but does not match.")
     else:
         print("No face detected.")
+
+
+app = FastAPI()
+
+class TriggerRequest:
+    entity: str
+    trigger: bool
+
+@app.post("/recognize_current")
+async def recognize_current(request: TriggerRequest):
+    # Request 
+    if request.trigger: # if true
+        if request.entity == "Cam1":
+            asyncio.create_task(Database.log_event(time.strftime("%Y-%m-%d %H:%M:%S"), "TriggerRequest", "Success", "Triggerred by Cam1"))
+        elif request.entity == "UltraSonic":
+            asyncio.create_task(Database.log_event(time.strftime("%Y-%m-%d %H:%M:%S"), "TriggerRequest", "Success", "Triggerred by UltraSonic"))
+        else:
+            asyncio.create_task(Database.log_event(time.strftime("%Y-%m-%d %H:%M:%S"), "TriggerRequest", "Error", f"Unknown entity: {request.entity}"))
+            return {"status": "error", "message": "WTF are to trying to do?"}
+    else: 
+        asyncio.create_task(Database.log_event(time.strftime("%Y-%m-%d %H:%M:%S"), "TriggerRequest", "Error", f"Unknown entity: {request.entity}"))
+        return {"status": "error", "message": "WTF are to trying to do?"}
+    # Compare
+    try:
+        frame = await Foundation.read_mjpeg_frame(ME_URL, auth=(USER, PASS))
+        got_face, compare_success = await FaceRecognition.compare(frame, my_encoding)
+        if not got_face:
+            asyncio.create_task(Database.log_event(time.strftime("%Y-%m-%d %H:%M:%S"), "FacialRecognition", "UnSuccess", "RecognitionAttempt: No face detected"))
+            return {"status": "unsuccess"}
+        else:
+            asyncio.create_task(Database.log_event(time.strftime("%Y-%m-%d %H:%M:%S"), "FacialRecognition", "Success", f"RecognitionAttempt: Face detected, compare successful?: {compare_success}"))
+            return {"status": "success", "match": compare_success}
+    except Exception as e:
+        print(f"Error during recognition: {e}")
+        asyncio.create_task(Database.log_event(time.strftime("%Y-%m-%d %H:%M:%S"), "FacialRecognition", "Error", str(e)))
+        return {"status": "error", "message": str(e)}
+
 
 if __name__ == "__main__":
     load_dotenv()
@@ -90,5 +157,10 @@ if __name__ == "__main__":
     # HomeAssistant
     HA_URL = os.getenv("HA_URL")
     TOKEN = os.getenv("TOKEN")
+
+    my_encoding = asyncio.run(FaceRecognition.prepare())
     
-    asyncio.run(main())
+    Database.prepare()
+
+    # asyncio.run(main())
+    uvicorn.run(app, host="127.0.0.1", port=3000)
