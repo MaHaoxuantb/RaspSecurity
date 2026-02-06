@@ -1,0 +1,17 @@
+#!/usr/bin/with-contenv sh
+set -e
+
+# HA add-ons commonly read options from /data/options.json.
+# We'll translate those into environment variables your code already expects.
+
+OPTIONS="/data/options.json"
+
+export ME_URL="$(jq -r '.me_url // ""' "$OPTIONS")"
+export USER="$(jq -r '.user // ""' "$OPTIONS")"
+export PASS="$(jq -r '.pass // ""' "$OPTIONS")"
+export HA_URL="$(jq -r '.ha_url // ""' "$OPTIONS")"
+export TOKEN="$(jq -r '.token // ""' "$OPTIONS")"
+export security_key="$(jq -r '.security_key // ""' "$OPTIONS")"
+
+cd /app
+exec python3 /app/main.py

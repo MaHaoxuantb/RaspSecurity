@@ -30,7 +30,8 @@ jobs:
           args: >
             --docker-hub-check
             --target raspsecurity
-            --all
+            --amd64
+            --aarch64
             --image ghcr.io/${{ github.repository }}-raspsecurity
             --tag ${{
               startsWith(github.ref, 'refs/tags/')
