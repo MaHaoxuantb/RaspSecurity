@@ -14,7 +14,7 @@ boot: auto
 init: false
 
 # Home Assistant will substitute {arch}
-image: "ghcr.io/MaHaoxuantb/RaspSecurity-raspsecurity-{arch}"
+image: "ghcr.io/mahaoxuantb/raspsecurity-raspsecurity-{arch}"
 
 ports:
   3000/tcp: 3000

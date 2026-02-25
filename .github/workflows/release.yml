@@ -32,4 +32,3 @@ jobs:
             --target raspsecurity
             --amd64
             --aarch64
-            --image ghcr.io/${{ github.repository }}-raspsecurity
